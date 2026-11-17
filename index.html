@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#14171c">
+<title>Truck Pilot</title>
+<style>
+  :root {
+    --bg: #14171c; --panel: #1e232b; --line: #2f3742; --text: #e8ecf1; --dim: #8b96a5;
+    --accent: #e0352b; --ok: #37c871; --warn: #f0b429;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .04em; text-transform: uppercase; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.busy { background: var(--warn); }
+  #status { color: var(--dim); flex: 1; min-width: 120px; }
+  #battery { color: var(--dim); font-variant-numeric: tabular-nums; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  main {
+    flex: 1; min-height: 0; display: grid; gap: 16px; padding: 16px;
+    grid-template-columns: 1fr minmax(180px, 260px) 1fr; align-items: center; justify-items: center;
+  }
+  .pad {
+    position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; touch-action: none;
+  }
+  #throttle { width: 110px; height: min(60vh, 320px); }
+  #steer { height: 110px; width: min(38vw, 320px); }
+  .knob {
+    position: absolute; left: 50%; top: 50%; width: 86px; height: 86px; margin: -43px 0 0 -43px;
+    border-radius: 50%; background: var(--accent); pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,.5);
+  }
+  .pad .lbl {
+    position: absolute; color: var(--dim); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; pointer-events: none;
+  }
+  #throttle .lbl.a { top: -22px; left: 0; right: 0; text-align: center; }
+  #throttle .lbl.b { bottom: -22px; left: 0; right: 0; text-align: center; }
+  #steer .lbl.a { left: 0; top: -22px; }
+  #steer .lbl.b { right: 0; top: -22px; }
+  .mid { display: flex; flex-direction: column; gap: 14px; width: 100%; }
+  .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .row label { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .row output { font-variant-numeric: tabular-nums; min-width: 3.5ch; text-align: right; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; touch-action: pan-x; }
+  .trim button { width: 40px; padding: 6px 0; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+  #hint { color: var(--dim); font-size: 12px; text-align: center; }
+  #unsupported {
+    display: none; margin: 16px; padding: 14px 16px; border: 1px solid var(--warn);
+    border-radius: 10px; color: var(--text); user-select: text; -webkit-user-select: text;
+  }
+  #log {
+    max-height: 84px; overflow: auto; margin: 0; padding: 8px 16px; border-top: 1px solid var(--line);
+    color: var(--dim); font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+    user-select: text; -webkit-user-select: text; touch-action: pan-y;
+  }
+  @media (orientation: portrait) {
+    main { grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; }
+    .mid { grid-column: 1 / -1; grid-row: 1; max-width: 420px; }
+    #steer { width: min(44vw, 240px); }
+    #throttle { height: min(40vh, 280px); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>Truck Pilot</h1>
+  <span id="status">Not connected</span>
+  <span id="battery"></span>
+  <button id="connectAny" title="Show every nearby Bluetooth device instead of only VEX brains">Show all devices</button>
+  <button id="connect" class="primary">Connect</button>
+</header>
+
+<div id="unsupported">
+  <b>This browser can't talk to Bluetooth devices.</b><br>
+  Use Chrome or Edge on a Mac, Windows PC, Chromebook or Android phone.
+  On an iPhone or iPad, install the free <b>Bluefy</b> browser from the App Store and open this page in it.
+  The page must be opened from <code>https://</code> or <code>http://localhost</code>.
+</div>
+
+<main>
+  <div class="pad" id="throttle">
+    <span class="lbl a">Forward</span><span class="lbl b">Reverse</span>
+    <div class="knob"></div>
+  </div>
+
+  <div class="mid">
+    <div class="row">
+      <label for="power">Max speed</label>
+      <input type="range" id="power" min="20" max="100" step="5" value="100">
+      <output id="powerOut">100%</output>
+    </div>
+    <div class="row trim">
+      <label>Steering trim</label>
+      <span class="row" style="gap:6px">
+        <button id="trimL" aria-label="Trim left">◀</button>
+        <output id="trimOut">0</output>
+        <button id="trimR" aria-label="Trim right">▶</button>
+      </span>
+    </div>
+    <label class="check"><input type="checkbox" id="invSteer"> Reverse steering</label>
+    <label class="check"><input type="checkbox" id="invDrive"> Reverse throttle</label>
+    <div id="hint">Keyboard: W/S or ↑/↓ drive · A/D or ←/→ steer · Space stop<br>A game controller also works.</div>
+  </div>
+
+  <div class="pad" id="steer">
+    <span class="lbl a">Left</span><span class="lbl b">Right</span>
+    <div class="knob"></div>
+  </div>
+</main>
+
+<pre id="log"></pre>
+
+<script>
+"use strict";
+/*
+ * Protocol for the HEXBUG "VEX Robotics" Bluetooth brain (the one the VEX Pilot app drove),
+ * taken from the last published Android build of VEX Pilot (com.vex.pilot.app).
+ *
+ *  Service  6faa2911-…  "VEXDriverService"
+ *    6faa8824  controls  write-without-response, 6 bytes, sent every 50 ms:
+ *                        [axis1, axis2, axis3, axis4, buttons1, buttons2]  (axes are int8, -100..100)
+ *    6faa635a  config    12 bytes, byte 8 = model preset (0x01 = Offroad Truck), rest zero
+ *    6faa5ec2  status    notify; byte 0 / 20 = battery volts
+ *
+ *  Offroad Truck: axis1 and axis4 = drive motor, axis2 = steering (+ trim, trim is ±40).
+ *
+ *  Advertising: manufacturer data whose first two bytes are 11 11, 06 77 or 77 06,
+ *  followed by product type, 4 version bytes, mode (0xAA = pairing), 4 id bytes.
+ */
+const P = "-9200-49a0-a353-6152c5930ec5";
+const SVC = "6faa2911" + P, CH_CTRL = "6faa8824" + P, CH_CONFIG = "6faa635a" + P, CH_STATUS = "6faa5ec2" + P;
+const PRESET_TRUCK = 0x01;
+const COMPANY_IDS = [0x1111, 0x7706, 0x0677];
+const SEND_MS = 50, DEADBAND = 10, TRIM_MAX = 40, TRIM_STEP = 2;
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("tp." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("tp." + k, JSON.stringify(v)); } catch {} },
+};
+function log(msg) {
+  const el = $("log");
+  el.textContent += new Date().toLocaleTimeString() + "  " + msg + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---------- input ----------
+const touch = { throttle: 0, steer: 0 };   // -100..100 from on-screen pads
+const keys = new Set();
+let trim = clamp(store.get("trim", 0), -TRIM_MAX, TRIM_MAX);
+
+function makePad(el, axis, vertical) {
+  const knob = el.querySelector(".knob");
+  let active = null;
+  function update(e) {
+    const r = el.getBoundingClientRect();
+    const travel = (vertical ? r.height : r.width) / 2 - 47;
+    const off = vertical ? (r.top + r.height / 2) - e.clientY : e.clientX - (r.left + r.width / 2);
+    const v = clamp(off / travel, -1, 1);
+    touch[axis] = Math.round(v * 100);
+    knob.style.transform = vertical ? `translateY(${-v * travel}px)` : `translateX(${v * travel}px)`;
+  }
+  function release(e) {
+    if (e.pointerId !== active) return;
+    active = null; touch[axis] = 0; knob.style.transform = "";
+  }
+  el.addEventListener("pointerdown", (e) => {
+    if (active !== null) return;
+    active = e.pointerId; el.setPointerCapture(e.pointerId); update(e); e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => { if (e.pointerId === active) update(e); });
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+  el.addEventListener("lostpointercapture", release);
+}
+makePad($("throttle"), "throttle", true);
+makePad($("steer"), "steer", false);
+
+const KEYMAP = { KeyW: "f", ArrowUp: "f", KeyS: "b", ArrowDown: "b", KeyA: "l", ArrowLeft: "l", KeyD: "r", ArrowRight: "r" };
+addEventListener("keydown", (e) => {
+  if (e.code === "Space") { keys.clear(); e.preventDefault(); return; }
+  const k = KEYMAP[e.code];
+  if (k && !e.metaKey && !e.ctrlKey && !e.altKey) { keys.add(k); e.preventDefault(); }
+});
+addEventListener("keyup", (e) => { const k = KEYMAP[e.code]; if (k) keys.delete(k); });
+addEventListener("blur", () => keys.clear());
+document.addEventListener("visibilitychange", () => { if (document.hidden) { keys.clear(); touch.throttle = touch.steer = 0; } });
+
+function gamepadInput() {
+  const out = { throttle: 0, steer: 0 };
+  if (!navigator.getGamepads) return out;
+  for (const gp of navigator.getGamepads()) {
+    if (!gp || !gp.connected) continue;
+    const ax = (i) => (Math.abs(gp.axes[i] || 0) < 0.12 ? 0 : gp.axes[i]);
+    const btn = (i) => (gp.buttons[i] ? gp.buttons[i].value : 0);
+    // left stick Y or triggers for throttle; right stick X (or left stick X) for steering
+    let t = -ax(1) + (btn(7) - btn(6));
+    let s = ax(2) || ax(0);
+    out.throttle = clamp(Math.round(t * 100), -100, 100);
+    out.steer = clamp(Math.round(s * 100), -100, 100);
+    if (out.throttle || out.steer) break;
+  }
+  return out;
+}
+
+function readControls() {
+  const gp = gamepadInput();
+  let throttle = touch.throttle + gp.throttle + (keys.has("f") ? 100 : 0) - (keys.has("b") ? 100 : 0);
+  let steer = touch.steer + gp.steer + (keys.has("r") ? 100 : 0) - (keys.has("l") ? 100 : 0);
+  throttle = clamp(throttle, -100, 100);
+  steer = clamp(steer, -100, 100);
+  if (Math.abs(throttle) < DEADBAND) throttle = 0;
+  throttle = Math.round(throttle * $("power").value / 100);
+  if ($("invDrive").checked) throttle = -throttle;
+  if ($("invSteer").checked) steer = -steer;
+  steer = clamp(steer + trim, -100, 100);
+  return { throttle, steer };
+}
+
+// ---------- settings ----------
+function showTrim() { $("trimOut").textContent = (trim > 0 ? "+" : "") + trim; }
+$("trimL").onclick = () => { trim = clamp(trim - TRIM_STEP, -TRIM_MAX, TRIM_MAX); store.set("trim", trim); showTrim(); };
+$("trimR").onclick = () => { trim = clamp(trim + TRIM_STEP, -TRIM_MAX, TRIM_MAX); store.set("trim", trim); showTrim(); };
+showTrim();
+$("power").value = store.get("power", 100);
+$("power").oninput = () => { $("powerOut").textContent = $("power").value + "%"; store.set("power", +$("power").value); };
+$("power").oninput();
+for (const id of ["invSteer", "invDrive"]) {
+  $(id).checked = store.get(id, false);
+  $(id).onchange = () => store.set(id, $(id).checked);
+}
+
+// ---------- bluetooth ----------
+let device = null, ctrlChar = null, timer = null, writing = false, failures = 0;
+
+function setState(state, text) {
+  $("dot").className = "dot" + (state === "on" ? " on" : state === "busy" ? " busy" : "");
+  $("status").textContent = text;
+  $("connect").textContent = state === "on" ? "Disconnect" : "Connect";
+  $("connect").disabled = state === "busy";
+  $("connectAny").style.display = state === "off" ? "" : "none";
+  if (state !== "on") $("battery").textContent = "";
+}
+
+async function write(ch, bytes) {
+  if (ch.properties.writeWithoutResponse) return ch.writeValueWithoutResponse(bytes);
+  return ch.writeValueWithResponse(bytes);
+}
+
+async function connect(showAll) {
+  try {
+    setState("busy", "Choose your truck…");
+    const opts = showAll
+      ? { acceptAllDevices: true, optionalServices: [SVC] }
+      : { filters: COMPANY_IDS.map((id) => ({ manufacturerData: [{ companyIdentifier: id }] })), optionalServices: [SVC] };
+    device = await navigator.bluetooth.requestDevice(opts);
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    log(`Selected "${device.name || "(no name)"}"`);
+
+    setState("busy", "Connecting…");
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SVC);
+    const chars = await svc.getCharacteristics();
+    const find = (uuid) => chars.find((c) => c.uuid === uuid);
+    log("Characteristics: " + chars.map((c) => c.uuid.slice(0, 8)).join(", "));
+
+    const cfg = find(CH_CONFIG);
+    if (cfg) {
+      const b = new Uint8Array(12); b[8] = PRESET_TRUCK;
+      await write(cfg, b);
+      log("Truck preset sent");
+    } else log("No config characteristic found (continuing)");
+
+    const st = find(CH_STATUS);
+    if (st) {
+      try {
+        st.addEventListener("characteristicvaluechanged", (e) => {
+          const v = e.target.value;
+          if (v.byteLength > 0) $("battery").textContent = "Battery " + (v.getUint8(0) / 20).toFixed(1) + " V";
+        });
+        await st.startNotifications();
+      } catch (err) { log("Status notifications unavailable: " + err.message); }
+    }
+
+    ctrlChar = find(CH_CTRL);
+    if (!ctrlChar) throw new Error("Control characteristic not found — is this a VEX Pilot brain?");
+    failures = 0;
+    timer = setInterval(tick, SEND_MS);
+    setState("on", "Connected to " + (device.name || "truck"));
+    log("Connected — driving enabled");
+  } catch (err) {
+    if (err.name === "NotFoundError") { setState("off", "Not connected"); log("No device chosen. If the truck isn't listed, try “Show all devices”."); }
+    else { log("Connect failed: " + err.message); disconnect(); setState("off", "Connection failed"); }
+  }
+}
+
+async function tick() {
+  if (!ctrlChar || writing) return;
+  const c = readControls();
+  // [axis1 drive, axis2 steering, axis3, axis4 drive, buttons1, buttons2]
+  const pkt = new Uint8Array(new Int8Array([c.throttle, c.steer, 0, c.throttle, 0, 0]).buffer);
+  writing = true;
+  try { await write(ctrlChar, pkt); failures = 0; }
+  catch (err) { if (++failures === 20) log("Writes are failing: " + err.message); }
+  finally { writing = false; }
+}
+
+function stopLoop() { clearInterval(timer); timer = null; ctrlChar = null; writing = false; }
+function onDisconnected() { stopLoop(); setState("off", "Disconnected"); log("Truck disconnected"); }
+function disconnect() {
+  stopLoop();
+  if (device) {
+    device.removeEventListener("gattserverdisconnected", onDisconnected);
+    if (device.gatt && device.gatt.connected) device.gatt.disconnect();
+  }
+  device = null;
+}
+
+$("connect").onclick = () => {
+  if (device && device.gatt && device.gatt.connected) { disconnect(); setState("off", "Not connected"); log("Disconnected"); }
+  else connect(false);
+};
+$("connectAny").onclick = () => connect(true);
+
+if (!navigator.bluetooth) {
+  $("unsupported").style.display = "block";
+  $("connect").disabled = true; $("connectAny").disabled = true;
+  setState("off", "Bluetooth not available in this browser");
+  $("connect").disabled = true;
+} else {
+  setState("off", "Not connected");
+  log("Switch the truck on, then press Connect.");
+}
+</script>
+</body>
+</html>
